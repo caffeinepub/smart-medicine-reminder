@@ -425,14 +425,10 @@ actor {
     };
   };
 
-  public shared ({ caller }) func getMedicineInfo(brandName : Text) : async Text {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can lookup medicine information");
-    };
-
-    let searchName = brandName.toLower();
-    let url = "https://api.fda.gov/drug/label.json?search=brand_name:" # searchName # "&limit=1";
-
+  // Public medicine lookup - no auth required (read-only external data)
+  // Uses IC HTTPS outcalls to bypass browser CSP restrictions in production
+  public shared func getMedicineInfo(searchQuery : Text) : async Text {
+    let url = "https://api.fda.gov/drug/label.json?search=" # searchQuery # "&limit=1";
     await OutCall.httpGetRequest(url, [], transform);
   };
 

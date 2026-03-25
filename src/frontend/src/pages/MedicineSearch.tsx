@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useActor } from "@/hooks/useActor";
 import {
   AlertCircle,
   ChevronDown,
@@ -17,7 +18,6 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
-import { useActor } from "../hooks/useActor";
 
 interface FdaResult {
   brand_name?: string[];
@@ -34,6 +34,53 @@ interface FdaResult {
 function parseFirstArray(arr?: string[]): string {
   if (!arr || arr.length === 0) return "";
   return arr[0].replace(/<[^>]*>/g, " ").trim();
+}
+
+// Uses IC backend HTTP outcalls - bypasses browser CSP in production
+async function fetchFdaViaBackend(
+  getMedicineInfo: (q: string) => Promise<string>,
+  query: string,
+): Promise<FdaResult | null> {
+  const searches = [
+    `brand_name:"${query}"`,
+    `openfda.brand_name:"${query}"`,
+    `openfda.generic_name:"${query}"`,
+    query,
+  ];
+
+  for (const search of searches) {
+    try {
+      const raw = await getMedicineInfo(search);
+      const data = JSON.parse(raw);
+      if (data?.results?.[0]) return data.results[0] as FdaResult;
+    } catch {
+      // try next
+    }
+  }
+  return null;
+}
+
+// Fallback: direct browser fetch (works in draft/dev)
+async function fetchFdaDirect(query: string): Promise<FdaResult | null> {
+  const searches = [
+    `brand_name:"${encodeURIComponent(query)}"`,
+    `openfda.brand_name:"${encodeURIComponent(query)}"`,
+    `openfda.generic_name:"${encodeURIComponent(query)}"`,
+    encodeURIComponent(query),
+  ];
+
+  for (const search of searches) {
+    try {
+      const url = `https://api.fda.gov/drug/label.json?search=${search}&limit=1`;
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data?.results?.[0]) return data.results[0] as FdaResult;
+    } catch {
+      // try next
+    }
+  }
+  return null;
 }
 
 async function getHFSummary(text: string): Promise<string> {
@@ -73,31 +120,40 @@ export default function MedicineSearch() {
   const [searched, setSearched] = useState("");
 
   async function handleSearch() {
-    if (!query.trim() || !actor) return;
+    if (!query.trim()) return;
     setLoading(true);
     setError("");
     setResult(null);
     setAiSummary("");
     setSearched(query.trim());
     try {
-      const raw = await actor.getMedicineInfo(query.trim());
-      let parsed: { results?: FdaResult[] } = {};
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        /* ignore */
+      let fdaResult: FdaResult | null = null;
+
+      // Try backend HTTP outcalls first (bypasses CSP in production)
+      if (actor?.getMedicineInfo) {
+        fdaResult = await fetchFdaViaBackend(
+          actor.getMedicineInfo.bind(actor),
+          query.trim(),
+        );
       }
 
-      if (!parsed.results || parsed.results.length === 0) {
-        setError("No FDA data found for this medicine.");
+      // Fallback to direct browser fetch
+      if (!fdaResult) {
+        fdaResult = await fetchFdaDirect(query.trim());
+      }
+
+      if (!fdaResult) {
+        setError(
+          "No FDA data found for this medicine. Try a different name or spelling.",
+        );
         setLoading(false);
         return;
       }
-      const fdaResult = parsed.results[0];
+
       setResult(fdaResult);
       setLoading(false);
 
-      // Get AI summary in parallel
+      // Get AI summary in background
       const textForSummary = [
         parseFirstArray(fdaResult.purpose),
         parseFirstArray(fdaResult.indications_and_usage),
@@ -258,7 +314,7 @@ export default function MedicineSearch() {
                   </p>
                 ) : (
                   <p className="text-sm text-muted-foreground italic">
-                    AI summary unavailable (rate limited). See details below.
+                    AI summary unavailable. See details below.
                   </p>
                 )}
               </CardContent>
