@@ -6,6 +6,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   BarChart3,
   Bell,
+  Eye,
+  EyeOff,
   KeyRound,
   LayoutDashboard,
   Loader2,
@@ -13,7 +15,7 @@ import {
   Search,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "./hooks/useAuth";
 import Dashboard from "./pages/Dashboard";
 import History from "./pages/History";
@@ -36,22 +38,26 @@ function AuthScreen() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const isMounted = useRef(true);
 
-  useEffect(() => {
-    isMounted.current = true;
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
+  // Password visibility toggles
+  const [showSignInPwd, setShowSignInPwd] = useState(false);
+  const [showRegPwd, setShowRegPwd] = useState(false);
+  const [showConfirmPwd, setShowConfirmPwd] = useState(false);
 
   const handleSignIn = async () => {
     setError(null);
     setIsLoading(true);
     const result = await loginWithPassword(username, password);
-    if (!isMounted.current) return;
     setIsLoading(false);
-    if (result.error) setError(result.error);
+    if (result.error) {
+      if (result.error === "Username not found") {
+        setError(
+          "No account found with that username. Create one in the 'Create Account' tab.",
+        );
+      } else {
+        setError(result.error);
+      }
+    }
   };
 
   const handleRegister = async () => {
@@ -62,9 +68,16 @@ function AuthScreen() {
     }
     setIsLoading(true);
     const result = await registerWithPassword(username, password);
-    if (!isMounted.current) return;
     setIsLoading(false);
-    if (result.error) setError(result.error);
+    if (result.error) {
+      if (result.error === "Username already taken") {
+        setError(
+          "Username already taken. If this is your account, try signing in instead.",
+        );
+      } else {
+        setError(result.error);
+      }
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -142,27 +155,56 @@ function AuthScreen() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="signin-password">Password</Label>
-                <Input
-                  id="signin-password"
-                  data-ocid="auth.password.input"
-                  type="password"
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    setError(null);
-                  }}
-                  onKeyDown={handleKeyDown}
-                  autoComplete="current-password"
-                />
+                <div className="relative">
+                  <Input
+                    id="signin-password"
+                    data-ocid="auth.password.input"
+                    type={showSignInPwd ? "text" : "password"}
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setError(null);
+                    }}
+                    onKeyDown={handleKeyDown}
+                    autoComplete="current-password"
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowSignInPwd(!showSignInPwd)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label={
+                      showSignInPwd ? "Hide password" : "Show password"
+                    }
+                  >
+                    {showSignInPwd ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
               </div>
               {error && (
-                <p
+                <div
                   data-ocid="auth.signin.error_state"
-                  className="text-xs text-destructive"
+                  className="text-xs text-destructive space-y-1"
                 >
-                  {error}
-                </p>
+                  <p>{error}</p>
+                  {error.includes("Create Account") && (
+                    <button
+                      type="button"
+                      className="underline font-medium"
+                      onClick={() => {
+                        setTab("register");
+                        setError(null);
+                      }}
+                    >
+                      Go to Create Account →
+                    </button>
+                  )}
+                </div>
               )}
               <Button
                 data-ocid="auth.signin.submit_button"
@@ -196,43 +238,87 @@ function AuthScreen() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="reg-password">Password</Label>
-                <Input
-                  id="reg-password"
-                  data-ocid="auth.register.password.input"
-                  type="password"
-                  placeholder="Create a password (min 6 chars)"
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    setError(null);
-                  }}
-                  onKeyDown={handleKeyDown}
-                  autoComplete="new-password"
-                />
+                <div className="relative">
+                  <Input
+                    id="reg-password"
+                    data-ocid="auth.register.password.input"
+                    type={showRegPwd ? "text" : "password"}
+                    placeholder="Create a password (min 6 chars)"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setError(null);
+                    }}
+                    onKeyDown={handleKeyDown}
+                    autoComplete="new-password"
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowRegPwd(!showRegPwd)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label={showRegPwd ? "Hide password" : "Show password"}
+                  >
+                    {showRegPwd ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="reg-confirm">Confirm Password</Label>
-                <Input
-                  id="reg-confirm"
-                  data-ocid="auth.confirm.input"
-                  type="password"
-                  placeholder="Repeat your password"
-                  value={confirmPassword}
-                  onChange={(e) => {
-                    setConfirmPassword(e.target.value);
-                    setError(null);
-                  }}
-                  onKeyDown={handleKeyDown}
-                  autoComplete="new-password"
-                />
+                <div className="relative">
+                  <Input
+                    id="reg-confirm"
+                    data-ocid="auth.confirm.input"
+                    type={showConfirmPwd ? "text" : "password"}
+                    placeholder="Repeat your password"
+                    value={confirmPassword}
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value);
+                      setError(null);
+                    }}
+                    onKeyDown={handleKeyDown}
+                    autoComplete="new-password"
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPwd(!showConfirmPwd)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label={
+                      showConfirmPwd ? "Hide password" : "Show password"
+                    }
+                  >
+                    {showConfirmPwd ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
               </div>
               {error && (
-                <p
+                <div
                   data-ocid="auth.register.error_state"
-                  className="text-xs text-destructive"
+                  className="text-xs text-destructive space-y-1"
                 >
-                  {error}
-                </p>
+                  <p>{error}</p>
+                  {error.includes("signing in") && (
+                    <button
+                      type="button"
+                      className="underline font-medium"
+                      onClick={() => {
+                        setTab("signin");
+                        setError(null);
+                      }}
+                    >
+                      Go to Sign In →
+                    </button>
+                  )}
+                </div>
               )}
               <Button
                 data-ocid="auth.register.submit_button"
