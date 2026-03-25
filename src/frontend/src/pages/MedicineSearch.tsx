@@ -36,7 +36,30 @@ function parseFirstArray(arr?: string[]): string {
   return arr[0].replace(/<[^>]*>/g, " ").trim();
 }
 
-// Uses IC backend HTTP outcalls - bypasses browser CSP in production
+// Fast: direct browser fetch to OpenFDA (works in most environments, CORS-enabled)
+async function fetchFdaDirect(query: string): Promise<FdaResult | null> {
+  const searches = [
+    `brand_name:"${encodeURIComponent(query)}"`,
+    `openfda.brand_name:"${encodeURIComponent(query)}"`,
+    `openfda.generic_name:"${encodeURIComponent(query)}"`,
+    encodeURIComponent(query),
+  ];
+
+  for (const search of searches) {
+    try {
+      const url = `https://api.fda.gov/drug/label.json?search=${search}&limit=1`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data?.results?.[0]) return data.results[0] as FdaResult;
+    } catch {
+      // try next
+    }
+  }
+  return null;
+}
+
+// Fallback: IC backend HTTP outcalls (bypasses CSP, but slower ~4-8s)
 async function fetchFdaViaBackend(
   getMedicineInfo: (q: string) => Promise<string>,
   query: string,
@@ -60,31 +83,8 @@ async function fetchFdaViaBackend(
   return null;
 }
 
-// Fallback: direct browser fetch (works in draft/dev)
-async function fetchFdaDirect(query: string): Promise<FdaResult | null> {
-  const searches = [
-    `brand_name:"${encodeURIComponent(query)}"`,
-    `openfda.brand_name:"${encodeURIComponent(query)}"`,
-    `openfda.generic_name:"${encodeURIComponent(query)}"`,
-    encodeURIComponent(query),
-  ];
-
-  for (const search of searches) {
-    try {
-      const url = `https://api.fda.gov/drug/label.json?search=${search}&limit=1`;
-      const res = await fetch(url);
-      if (!res.ok) continue;
-      const data = await res.json();
-      if (data?.results?.[0]) return data.results[0] as FdaResult;
-    } catch {
-      // try next
-    }
-  }
-  return null;
-}
-
 async function getHFSummary(text: string): Promise<string> {
-  const truncated = text.slice(0, 1000);
+  const truncated = text.slice(0, 800);
   try {
     const res = await fetch(
       "https://api-inference.huggingface.co/models/facebook/bart-large-cnn",
@@ -93,15 +93,15 @@ async function getHFSummary(text: string): Promise<string> {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           inputs: truncated,
-          parameters: { max_length: 150, min_length: 40 },
+          parameters: { max_length: 120, min_length: 30 },
         }),
+        signal: AbortSignal.timeout(20000),
       },
     );
     if (!res.ok) throw new Error("HF error");
     const data = await res.json();
     if (Array.isArray(data) && data[0]?.summary_text)
       return data[0].summary_text;
-    if (data?.error) throw new Error(data.error);
     return "";
   } catch {
     return "";
@@ -129,17 +129,15 @@ export default function MedicineSearch() {
     try {
       let fdaResult: FdaResult | null = null;
 
-      // Try backend HTTP outcalls first (bypasses CSP in production)
-      if (actor?.getMedicineInfo) {
+      // Try fast direct browser fetch first
+      fdaResult = await fetchFdaDirect(query.trim());
+
+      // Fallback to backend IC HTTP outcall if browser fetch failed
+      if (!fdaResult && actor?.getMedicineInfo) {
         fdaResult = await fetchFdaViaBackend(
           actor.getMedicineInfo.bind(actor),
           query.trim(),
         );
-      }
-
-      // Fallback to direct browser fetch
-      if (!fdaResult) {
-        fdaResult = await fetchFdaDirect(query.trim());
       }
 
       if (!fdaResult) {
@@ -153,7 +151,7 @@ export default function MedicineSearch() {
       setResult(fdaResult);
       setLoading(false);
 
-      // Get AI summary in background
+      // Get AI summary in background (non-blocking)
       const textForSummary = [
         parseFirstArray(fdaResult.purpose),
         parseFirstArray(fdaResult.indications_and_usage),
@@ -164,9 +162,10 @@ export default function MedicineSearch() {
 
       if (textForSummary) {
         setAiLoading(true);
-        const summary = await getHFSummary(textForSummary);
-        setAiSummary(summary);
-        setAiLoading(false);
+        getHFSummary(textForSummary).then((summary) => {
+          setAiSummary(summary);
+          setAiLoading(false);
+        });
       }
     } catch {
       setError("Failed to fetch medicine information. Please try again.");
@@ -347,7 +346,9 @@ export default function MedicineSearch() {
                   >
                     {detailsOpen ? "Hide Details" : "Show More Details"}
                     <ChevronDown
-                      className={`w-4 h-4 transition-transform ${detailsOpen ? "rotate-180" : ""}`}
+                      className={`w-4 h-4 transition-transform ${
+                        detailsOpen ? "rotate-180" : ""
+                      }`}
                     />
                   </Button>
                 </CollapsibleTrigger>

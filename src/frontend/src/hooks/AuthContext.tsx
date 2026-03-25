@@ -1,3 +1,5 @@
+import type { Identity } from "@icp-sdk/core/agent";
+import { Ed25519KeyIdentity } from "@icp-sdk/core/identity";
 import {
   type ReactNode,
   createContext,
@@ -16,6 +18,8 @@ export type AuthState = {
   isInitializing: boolean;
   username: string | null;
   method: AuthMethod;
+  /** Stable IC identity for password-based auth users */
+  passwordIdentity: Identity | null;
   loginWithPassword: (
     username: string,
     password: string,
@@ -37,6 +41,41 @@ const SESSION_KEY = "mediremind_session";
 
 function hashPassword(username: string, password: string): string {
   return btoa(`${username}:${password}`);
+}
+
+/** Derive a stable 32-byte seed from username + password using PBKDF2 */
+async function deriveIdentitySeed(
+  username: string,
+  password: string,
+): Promise<Uint8Array> {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      salt: enc.encode(`mediremind:${username.toLowerCase()}`),
+      iterations: 100_000,
+      hash: "SHA-256",
+    },
+    keyMaterial,
+    256,
+  );
+  return new Uint8Array(bits);
+}
+
+/** Generate a stable Ed25519 identity from username + password */
+async function deriveIdentity(
+  username: string,
+  password: string,
+): Promise<Ed25519KeyIdentity> {
+  const seed = await deriveIdentitySeed(username, password);
+  return Ed25519KeyIdentity.generate(seed);
 }
 
 let memUsers: StoredUser[] = [];
@@ -116,6 +155,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const ii = useInternetIdentity();
   const [session, setSession] = useState<Session | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [passwordIdentity, setPasswordIdentity] = useState<Identity | null>(
+    null,
+  );
 
   useEffect(() => {
     const stored = getSession();
@@ -149,6 +191,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
       saveSession(newSession);
       setSession(newSession);
+      // Derive stable IC identity for this user
+      const identity = await deriveIdentity(trimmed.toLowerCase(), password);
+      setPasswordIdentity(identity);
       return {};
     },
     [],
@@ -174,6 +219,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const newSession: Session = { username: trimmed, method: "password" };
       saveSession(newSession);
       setSession(newSession);
+      // Derive stable IC identity for this new user
+      const identity = await deriveIdentity(trimmed.toLowerCase(), password);
+      setPasswordIdentity(identity);
       return {};
     },
     [],
@@ -182,6 +230,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     clearSession();
     setSession(null);
+    setPasswordIdentity(null);
     if (session?.method === "ii") ii.clear();
   }, [session, ii]);
 
@@ -191,6 +240,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isInitializing: isInitializing || ii.isInitializing,
       username: session?.username ?? null,
       method: session?.method ?? null,
+      passwordIdentity,
       loginWithPassword,
       registerWithPassword,
       loginWithII: ii.login,
@@ -201,6 +251,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       isInitializing,
       ii,
+      passwordIdentity,
       loginWithPassword,
       registerWithPassword,
       logout,

@@ -3,18 +3,22 @@ import { useEffect } from "react";
 import type { backendInterface } from "../backend";
 import { createActorWithConfig } from "../config";
 import { getSecretParameter } from "../utils/urlParams";
+import { useAuth } from "./AuthContext";
 import { useInternetIdentity } from "./useInternetIdentity";
 
 const ACTOR_QUERY_KEY = "actor";
 export function useActor() {
-  const { identity } = useInternetIdentity();
+  const { identity: iiIdentity } = useInternetIdentity();
+  const { passwordIdentity } = useAuth();
   const queryClient = useQueryClient();
-  const actorQuery = useQuery<backendInterface>({
-    queryKey: [ACTOR_QUERY_KEY, identity?.getPrincipal().toString()],
-    queryFn: async () => {
-      const isAuthenticated = !!identity;
 
-      if (!isAuthenticated) {
+  // Use II identity if available, otherwise fall back to password-derived identity
+  const identity = iiIdentity ?? passwordIdentity ?? null;
+
+  const actorQuery = useQuery<backendInterface>({
+    queryKey: [ACTOR_QUERY_KEY, identity?.getPrincipal().toString() ?? "anon"],
+    queryFn: async () => {
+      if (!identity) {
         // Return anonymous actor if not authenticated
         return await createActorWithConfig();
       }
@@ -26,13 +30,13 @@ export function useActor() {
       };
 
       const actor = await createActorWithConfig(actorOptions);
+      // Register this principal with the backend access control.
+      // The first caller with the admin token becomes admin; all others become #user.
       const adminToken = getSecretParameter("caffeineAdminToken") || "";
       await actor._initializeAccessControlWithSecret(adminToken);
       return actor;
     },
-    // Only refetch when identity changes
     staleTime: Number.POSITIVE_INFINITY,
-    // This will cause the actor to be recreated when the identity changes
     enabled: true,
   });
 
