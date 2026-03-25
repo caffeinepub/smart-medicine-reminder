@@ -18,7 +18,6 @@ export type AuthState = {
   isInitializing: boolean;
   username: string | null;
   method: AuthMethod;
-  /** Stable IC identity for password-based auth users */
   passwordIdentity: Identity | null;
   loginWithPassword: (
     username: string,
@@ -38,12 +37,12 @@ type Session = { username: string; method: "password" | "ii" };
 
 const USERS_KEY = "mediremind_users";
 const SESSION_KEY = "mediremind_session";
+const IDENTITY_SEED_KEY = "mediremind_identity_seed";
 
 function hashPassword(username: string, password: string): string {
   return btoa(`${username}:${password}`);
 }
 
-/** Derive a stable 32-byte seed from username + password using PBKDF2 */
 async function deriveIdentitySeed(
   username: string,
   password: string,
@@ -67,15 +66,6 @@ async function deriveIdentitySeed(
     256,
   );
   return new Uint8Array(bits);
-}
-
-/** Generate a stable Ed25519 identity from username + password */
-async function deriveIdentity(
-  username: string,
-  password: string,
-): Promise<Ed25519KeyIdentity> {
-  const seed = await deriveIdentitySeed(username, password);
-  return Ed25519KeyIdentity.generate(seed);
 }
 
 let memUsers: StoredUser[] = [];
@@ -143,10 +133,38 @@ function clearSession(): void {
   if (isStorageAvailable("sessionStorage")) {
     try {
       sessionStorage.removeItem(SESSION_KEY);
+      sessionStorage.removeItem(IDENTITY_SEED_KEY);
     } catch {
       /* ignore */
     }
   }
+}
+
+function saveIdentitySeed(seed: Uint8Array): void {
+  if (isStorageAvailable("sessionStorage")) {
+    try {
+      sessionStorage.setItem(
+        IDENTITY_SEED_KEY,
+        JSON.stringify(Array.from(seed)),
+      );
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function loadIdentityFromSeed(): Ed25519KeyIdentity | null {
+  if (isStorageAvailable("sessionStorage")) {
+    try {
+      const raw = sessionStorage.getItem(IDENTITY_SEED_KEY);
+      if (!raw) return null;
+      const arr: number[] = JSON.parse(raw);
+      return Ed25519KeyIdentity.generate(new Uint8Array(arr));
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -161,7 +179,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const stored = getSession();
-    if (stored) setSession(stored);
+    if (stored) {
+      setSession(stored);
+      if (stored.method === "password") {
+        const identity = loadIdentityFromSeed();
+        if (identity) setPasswordIdentity(identity);
+      }
+    }
     setIsInitializing(false);
   }, []);
 
@@ -191,9 +215,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
       saveSession(newSession);
       setSession(newSession);
-      // Derive stable IC identity for this user
-      const identity = await deriveIdentity(trimmed.toLowerCase(), password);
-      setPasswordIdentity(identity);
+      const seed = await deriveIdentitySeed(trimmed.toLowerCase(), password);
+      saveIdentitySeed(seed);
+      setPasswordIdentity(Ed25519KeyIdentity.generate(seed));
       return {};
     },
     [],
@@ -219,9 +243,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const newSession: Session = { username: trimmed, method: "password" };
       saveSession(newSession);
       setSession(newSession);
-      // Derive stable IC identity for this new user
-      const identity = await deriveIdentity(trimmed.toLowerCase(), password);
-      setPasswordIdentity(identity);
+      const seed = await deriveIdentitySeed(trimmed.toLowerCase(), password);
+      saveIdentitySeed(seed);
+      setPasswordIdentity(Ed25519KeyIdentity.generate(seed));
       return {};
     },
     [],

@@ -12,14 +12,13 @@ export function useActor() {
   const { passwordIdentity } = useAuth();
   const queryClient = useQueryClient();
 
-  // Use II identity if available, otherwise fall back to password-derived identity
+  // Use II identity if present, otherwise fall back to password-derived identity
   const identity = iiIdentity ?? passwordIdentity ?? null;
 
   const actorQuery = useQuery<backendInterface>({
     queryKey: [ACTOR_QUERY_KEY, identity?.getPrincipal().toString() ?? "anon"],
     queryFn: async () => {
       if (!identity) {
-        // Return anonymous actor if not authenticated
         return await createActorWithConfig();
       }
 
@@ -30,8 +29,6 @@ export function useActor() {
       };
 
       const actor = await createActorWithConfig(actorOptions);
-      // Register this principal with the backend access control.
-      // The first caller with the admin token becomes admin; all others become #user.
       const adminToken = getSecretParameter("caffeineAdminToken") || "";
       await actor._initializeAccessControlWithSecret(adminToken);
       return actor;
@@ -40,7 +37,6 @@ export function useActor() {
     enabled: true,
   });
 
-  // When the actor changes, invalidate dependent queries
   useEffect(() => {
     if (actorQuery.data) {
       queryClient.invalidateQueries({
