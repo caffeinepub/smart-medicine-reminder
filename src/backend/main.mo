@@ -57,6 +57,30 @@ actor {
     adherenceRate : Float;
   };
 
+  public type UserProfile = {
+    name : Text;
+    age : Nat;
+    gender : Text;
+    locality : Text;
+    photoUrl : Text;
+    lastUpdated : Int;
+  };
+
+  public type DoctorGuidance = {
+    id : Text;
+    doctorName : Text;
+    treatment : Text;
+    notes : Text;
+    date : Text;
+  };
+
+  public type CheckupReport = {
+    id : Text;
+    visitDate : Text;
+    doctorName : Text;
+    notes : Text;
+  };
+
   module DoseLog {
     public func compare(a : DoseLog, b : DoseLog) : Order.Order {
       Int.compare(a.timestamp, b.timestamp);
@@ -68,6 +92,9 @@ actor {
 
   let reminders = Map.empty<Principal, Map.Map<Text, MedicineReminder>>();
   let logs = Map.empty<Principal, Map.Map<Text, DoseLog>>();
+  let profiles = Map.empty<Principal, UserProfile>();
+  let doctorGuidances = Map.empty<Principal, Map.Map<Text, DoctorGuidance>>();
+  let checkupReports = Map.empty<Principal, Map.Map<Text, CheckupReport>>();
 
   func getUserReminders(caller : Principal) : Map.Map<Text, MedicineReminder> {
     switch (reminders.get(caller)) {
@@ -91,9 +118,127 @@ actor {
     logs.add(caller, logMap);
   };
 
+  func getUserDoctorGuidances(caller : Principal) : Map.Map<Text, DoctorGuidance> {
+    switch (doctorGuidances.get(caller)) {
+      case (null) { Map.empty<Text, DoctorGuidance>() };
+      case (?m) { m };
+    };
+  };
+
+  func getUserCheckupReports(caller : Principal) : Map.Map<Text, CheckupReport> {
+    switch (checkupReports.get(caller)) {
+      case (null) { Map.empty<Text, CheckupReport>() };
+      case (?m) { m };
+    };
+  };
+
   public query func transform(input : OutCall.TransformationInput) : async OutCall.TransformationOutput {
     OutCall.transform(input);
   };
+
+  // ---- Profile ----
+
+  public query ({ caller }) func getProfile() : async ?UserProfile {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized");
+    };
+    profiles.get(caller);
+  };
+
+  public shared ({ caller }) func updateProfile(profile : UserProfile) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized");
+    };
+    let updated : UserProfile = {
+      name = profile.name;
+      age = profile.age;
+      gender = profile.gender;
+      locality = profile.locality;
+      photoUrl = profile.photoUrl;
+      lastUpdated = Time.now();
+    };
+    profiles.add(caller, updated);
+  };
+
+  // ---- Doctor Guidance ----
+
+  public query ({ caller }) func getAllDoctorGuidance() : async [DoctorGuidance] {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized");
+    };
+    getUserDoctorGuidances(caller).values().toArray();
+  };
+
+  public shared ({ caller }) func addDoctorGuidance(guidance : DoctorGuidance) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized");
+    };
+    let m = getUserDoctorGuidances(caller);
+    m.add(guidance.id, guidance);
+    doctorGuidances.add(caller, m);
+  };
+
+  public shared ({ caller }) func updateDoctorGuidance(guidance : DoctorGuidance) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized");
+    };
+    let m = getUserDoctorGuidances(caller);
+    if (not m.containsKey(guidance.id)) {
+      Runtime.trap("Guidance not found");
+    };
+    m.add(guidance.id, guidance);
+    doctorGuidances.add(caller, m);
+  };
+
+  public shared ({ caller }) func deleteDoctorGuidance(guidanceId : Text) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized");
+    };
+    let m = getUserDoctorGuidances(caller);
+    m.remove(guidanceId);
+    doctorGuidances.add(caller, m);
+  };
+
+  // ---- Checkup Reports ----
+
+  public query ({ caller }) func getAllCheckupReports() : async [CheckupReport] {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized");
+    };
+    getUserCheckupReports(caller).values().toArray();
+  };
+
+  public shared ({ caller }) func addCheckupReport(report : CheckupReport) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized");
+    };
+    let m = getUserCheckupReports(caller);
+    m.add(report.id, report);
+    checkupReports.add(caller, m);
+  };
+
+  public shared ({ caller }) func updateCheckupReport(report : CheckupReport) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized");
+    };
+    let m = getUserCheckupReports(caller);
+    if (not m.containsKey(report.id)) {
+      Runtime.trap("Report not found");
+    };
+    m.add(report.id, report);
+    checkupReports.add(caller, m);
+  };
+
+  public shared ({ caller }) func deleteCheckupReport(reportId : Text) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized");
+    };
+    let m = getUserCheckupReports(caller);
+    m.remove(reportId);
+    checkupReports.add(caller, m);
+  };
+
+  // ---- Reminders ----
 
   public shared ({ caller }) func createReminder(reminder : MedicineReminder) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
@@ -160,7 +305,6 @@ actor {
       Runtime.trap("Unauthorized: Only users can log doses");
     };
 
-    // FIX: Explicitly convert timestamp from Int to Text before concatenating.
     let userLogs = getUserLogs(caller);
     userLogs.add(doseLog.reminderId # "_" # doseLog.timestamp.toText(), doseLog);
     updateUserLogs(caller, userLogs);
@@ -425,8 +569,6 @@ actor {
     };
   };
 
-  // Public medicine lookup - no auth required (read-only external data)
-  // Uses IC HTTPS outcalls to bypass browser CSP restrictions in production
   public shared func getMedicineInfo(searchQuery : Text) : async Text {
     let url = "https://api.fda.gov/drug/label.json?search=" # searchQuery # "&limit=1";
     await OutCall.httpGetRequest(url, [], transform);

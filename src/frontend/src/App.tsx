@@ -1,3 +1,4 @@
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,10 +14,13 @@ import {
   Loader2,
   Pill,
   Search,
+  UserCircle,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
+import ProfileTab from "./components/ProfileTab";
 import { useAuth } from "./hooks/useAuth";
+import { useProfile, useUpdateProfile } from "./hooks/useProfile";
 import { useReminderNotifications } from "./hooks/useReminderNotifications";
 import { useReminders } from "./hooks/useReminders";
 import Dashboard from "./pages/Dashboard";
@@ -24,7 +28,7 @@ import History from "./pages/History";
 import MedicineSearch from "./pages/MedicineSearch";
 import Reminders from "./pages/Reminders";
 
-type Tab = "dashboard" | "reminders" | "search" | "history";
+type Tab = "dashboard" | "reminders" | "search" | "history" | "profile";
 
 function AuthScreen() {
   const {
@@ -35,6 +39,8 @@ function AuthScreen() {
   } = useAuth();
 
   const [tab, setTab] = useState<"signin" | "register">("signin");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -68,6 +74,10 @@ function AuthScreen() {
       setError("Passwords do not match");
       return;
     }
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError("Please enter a valid email address");
+      return;
+    }
     setIsLoading(true);
     const result = await registerWithPassword(username, password);
     setIsLoading(false);
@@ -79,6 +89,10 @@ function AuthScreen() {
       } else {
         setError(result.error);
       }
+    } else {
+      if (fullName.trim())
+        sessionStorage.setItem("reg_fullname", fullName.trim());
+      if (email.trim()) sessionStorage.setItem("reg_email", email.trim());
     }
   };
 
@@ -120,6 +134,8 @@ function AuthScreen() {
               setError(null);
               setPassword("");
               setConfirmPassword("");
+              setFullName("");
+              setEmail("");
             }}
           >
             <TabsList className="w-full mb-5">
@@ -223,6 +239,37 @@ function AuthScreen() {
             </TabsContent>
 
             <TabsContent value="register" className="space-y-4 mt-0">
+              <div className="space-y-2">
+                <Label htmlFor="reg-fullname">Full Name</Label>
+                <Input
+                  id="reg-fullname"
+                  data-ocid="auth.register.fullname.input"
+                  placeholder="Enter your full name"
+                  value={fullName}
+                  onChange={(e) => {
+                    setFullName(e.target.value);
+                    setError(null);
+                  }}
+                  onKeyDown={handleKeyDown}
+                  autoComplete="name"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="reg-email">Email</Label>
+                <Input
+                  id="reg-email"
+                  data-ocid="auth.register.email.input"
+                  type="email"
+                  placeholder="Enter your email address"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setError(null);
+                  }}
+                  onKeyDown={handleKeyDown}
+                  autoComplete="email"
+                />
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="reg-username">Username</Label>
                 <Input
@@ -370,6 +417,35 @@ function AuthScreen() {
   );
 }
 
+function HeaderAvatar({
+  photoUrl,
+  username,
+  onClick,
+}: {
+  photoUrl?: string;
+  username: string | null;
+  onClick: () => void;
+}) {
+  const initials = username ? username.slice(0, 2).toUpperCase() : "?";
+
+  return (
+    <button
+      type="button"
+      data-ocid="app.profile.open_modal_button"
+      onClick={onClick}
+      className="focus:outline-none focus:ring-2 focus:ring-ring rounded-full"
+      aria-label="Open profile"
+    >
+      <Avatar className="w-8 h-8 border border-border hover:ring-2 hover:ring-primary/40 transition-all">
+        <AvatarImage src={photoUrl} />
+        <AvatarFallback className="text-xs font-semibold bg-primary/10 text-primary">
+          {initials}
+        </AvatarFallback>
+      </Avatar>
+    </button>
+  );
+}
+
 export default function App() {
   const { isAuthenticated, isInitializing, username, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
@@ -383,6 +459,8 @@ export default function App() {
 
   const { data: reminders } = useReminders();
   const { notifPermission } = useReminderNotifications(reminders);
+  const { data: profile } = useProfile();
+  const updateProfile = useUpdateProfile();
 
   useEffect(() => {
     if (darkMode) {
@@ -396,6 +474,24 @@ export default function App() {
       /* ignore in iframe contexts */
     }
   }, [darkMode]);
+
+  useEffect(() => {
+    const pendingName = sessionStorage.getItem("reg_fullname");
+    if (pendingName && isAuthenticated && profile !== undefined) {
+      sessionStorage.removeItem("reg_fullname");
+      sessionStorage.removeItem("reg_email");
+      if (!profile?.name) {
+        updateProfile.mutate({
+          name: pendingName,
+          age: profile?.age ?? BigInt(0),
+          gender: profile?.gender ?? "",
+          locality: profile?.locality ?? "",
+          photoUrl: profile?.photoUrl ?? "",
+          lastUpdated: BigInt(Date.now()),
+        });
+      }
+    }
+  }, [isAuthenticated, profile, updateProfile.mutate]);
 
   if (isInitializing) {
     return (
@@ -425,14 +521,12 @@ export default function App() {
       label: "History",
       icon: <BarChart3 className="w-5 h-5" />,
     },
+    {
+      id: "profile",
+      label: "Profile",
+      icon: <UserCircle className="w-5 h-5" />,
+    },
   ];
-
-  // Show abbreviated username in header
-  const displayName = username
-    ? username.length > 20
-      ? `${username.slice(0, 8)}…`
-      : username
-    : "";
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -453,11 +547,6 @@ export default function App() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          {displayName && (
-            <span className="text-xs text-muted-foreground hidden sm:inline">
-              👤 {displayName}
-            </span>
-          )}
           <button
             type="button"
             data-ocid="app.toggle"
@@ -467,14 +556,11 @@ export default function App() {
           >
             {darkMode ? "☀️" : "🌙"}
           </button>
-          <button
-            type="button"
-            data-ocid="app.secondary_button"
-            onClick={logout}
-            className="text-xs px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-destructive hover:border-destructive transition-colors"
-          >
-            Logout
-          </button>
+          <HeaderAvatar
+            photoUrl={profile?.photoUrl}
+            username={username}
+            onClick={() => setActiveTab("profile")}
+          />
         </div>
       </header>
 
@@ -491,6 +577,7 @@ export default function App() {
             {activeTab === "reminders" && <Reminders />}
             {activeTab === "search" && <MedicineSearch />}
             {activeTab === "history" && <History />}
+            {activeTab === "profile" && <ProfileTab onLogout={logout} />}
           </motion.div>
         </AnimatePresence>
       </main>

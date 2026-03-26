@@ -48,6 +48,27 @@ export interface ReminderDayStats {
     snoozedDoses: bigint;
     totalDoses: bigint;
 }
+export interface UserProfile {
+    name: string;
+    age: bigint;
+    gender: string;
+    locality: string;
+    photoUrl: string;
+    lastUpdated: bigint;
+}
+export interface DoctorGuidance {
+    id: string;
+    doctorName: string;
+    treatment: string;
+    notes: string;
+    date: string;
+}
+export interface CheckupReport {
+    id: string;
+    visitDate: string;
+    doctorName: string;
+    notes: string;
+}
 export interface http_header {
     value: string;
     name: string;
@@ -99,4 +120,17 @@ export interface backendInterface {
     logDose(doseLog: DoseLog): Promise<void>;
     transform(input: TransformationInput): Promise<TransformationOutput>;
     updateReminder(reminder: MedicineReminder): Promise<void>;
+    // Profile
+    getProfile(): Promise<UserProfile | undefined>;
+    updateProfile(profile: UserProfile): Promise<void>;
+    // Doctor Guidance
+    getAllDoctorGuidance(): Promise<Array<DoctorGuidance>>;
+    addDoctorGuidance(guidance: DoctorGuidance): Promise<void>;
+    updateDoctorGuidance(guidance: DoctorGuidance): Promise<void>;
+    deleteDoctorGuidance(guidanceId: string): Promise<void>;
+    // Checkup Reports
+    getAllCheckupReports(): Promise<Array<CheckupReport>>;
+    addCheckupReport(report: CheckupReport): Promise<void>;
+    updateCheckupReport(report: CheckupReport): Promise<void>;
+    deleteCheckupReport(reportId: string): Promise<void>;
 }
