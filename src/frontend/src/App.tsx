@@ -17,6 +17,8 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { useAuth } from "./hooks/useAuth";
+import { useReminderNotifications } from "./hooks/useReminderNotifications";
+import { useReminders } from "./hooks/useReminders";
 import Dashboard from "./pages/Dashboard";
 import History from "./pages/History";
 import MedicineSearch from "./pages/MedicineSearch";
@@ -379,6 +381,9 @@ export default function App() {
     }
   });
 
+  const { data: reminders } = useReminders();
+  const { notifPermission } = useReminderNotifications(reminders);
+
   useEffect(() => {
     if (darkMode) {
       document.documentElement.classList.add("dark");
@@ -436,6 +441,16 @@ export default function App() {
         <div className="flex items-center gap-2">
           <Pill className="w-6 h-6 text-primary" />
           <span className="font-bold text-lg text-foreground">MediRemind</span>
+          {notifPermission === "granted" && (
+            <span
+              data-ocid="app.notification.success_state"
+              className="flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded-full"
+              title="Reminder notifications are active"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Active
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {displayName && (
