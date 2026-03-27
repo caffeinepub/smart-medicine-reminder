@@ -2,6 +2,13 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Toaster } from "@/components/ui/sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -41,6 +48,9 @@ function AuthScreen() {
   const [tab, setTab] = useState<"signin" | "register">("signin");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [age, setAge] = useState("");
+  const [gender, setGender] = useState("");
+  const [locality, setLocality] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -78,6 +88,13 @@ function AuthScreen() {
       setError("Please enter a valid email address");
       return;
     }
+    if (age.trim()) {
+      const n = Number(age);
+      if (Number.isNaN(n) || n < 0 || n > 120) {
+        setError("Age must be between 0 and 120");
+        return;
+      }
+    }
     setIsLoading(true);
     const result = await registerWithPassword(username, password);
     setIsLoading(false);
@@ -93,6 +110,10 @@ function AuthScreen() {
       if (fullName.trim())
         sessionStorage.setItem("reg_fullname", fullName.trim());
       if (email.trim()) sessionStorage.setItem("reg_email", email.trim());
+      if (age.trim()) sessionStorage.setItem("reg_age", age.trim());
+      if (gender.trim()) sessionStorage.setItem("reg_gender", gender.trim());
+      if (locality.trim())
+        sessionStorage.setItem("reg_locality", locality.trim());
     }
   };
 
@@ -136,6 +157,9 @@ function AuthScreen() {
               setConfirmPassword("");
               setFullName("");
               setEmail("");
+              setAge("");
+              setGender("");
+              setLocality("");
             }}
           >
             <TabsList className="w-full mb-5">
@@ -268,6 +292,74 @@ function AuthScreen() {
                   }}
                   onKeyDown={handleKeyDown}
                   autoComplete="email"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="reg-age">
+                  Age{" "}
+                  <span className="text-muted-foreground text-xs">
+                    (optional)
+                  </span>
+                </Label>
+                <Input
+                  id="reg-age"
+                  data-ocid="auth.register.age.input"
+                  type="number"
+                  placeholder="Enter your age"
+                  value={age}
+                  onChange={(e) => {
+                    setAge(e.target.value);
+                    setError(null);
+                  }}
+                  onKeyDown={handleKeyDown}
+                  min={0}
+                  max={120}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>
+                  Gender{" "}
+                  <span className="text-muted-foreground text-xs">
+                    (optional)
+                  </span>
+                </Label>
+                <Select
+                  value={gender}
+                  onValueChange={(v) => {
+                    setGender(v);
+                    setError(null);
+                  }}
+                >
+                  <SelectTrigger data-ocid="auth.register.gender.select">
+                    <SelectValue placeholder="Select gender" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Male">Male</SelectItem>
+                    <SelectItem value="Female">Female</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                    <SelectItem value="Prefer not to say">
+                      Prefer not to say
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="reg-locality">
+                  Locality / City{" "}
+                  <span className="text-muted-foreground text-xs">
+                    (optional)
+                  </span>
+                </Label>
+                <Input
+                  id="reg-locality"
+                  data-ocid="auth.register.locality.input"
+                  placeholder="Enter your city or locality"
+                  value={locality}
+                  onChange={(e) => {
+                    setLocality(e.target.value);
+                    setError(null);
+                  }}
+                  onKeyDown={handleKeyDown}
                 />
               </div>
               <div className="space-y-2">
@@ -477,19 +569,27 @@ export default function App() {
 
   useEffect(() => {
     const pendingName = sessionStorage.getItem("reg_fullname");
-    if (pendingName && isAuthenticated && profile !== undefined) {
+    const pendingAge = sessionStorage.getItem("reg_age");
+    const pendingGender = sessionStorage.getItem("reg_gender");
+    const pendingLocality = sessionStorage.getItem("reg_locality");
+    const hasPending =
+      pendingName || pendingAge || pendingGender || pendingLocality;
+    if (hasPending && isAuthenticated && profile !== undefined) {
       sessionStorage.removeItem("reg_fullname");
       sessionStorage.removeItem("reg_email");
-      if (!profile?.name) {
-        updateProfile.mutate({
-          name: pendingName,
-          age: profile?.age ?? BigInt(0),
-          gender: profile?.gender ?? "",
-          locality: profile?.locality ?? "",
-          photoUrl: profile?.photoUrl ?? "",
-          lastUpdated: BigInt(Date.now()),
-        });
-      }
+      sessionStorage.removeItem("reg_age");
+      sessionStorage.removeItem("reg_gender");
+      sessionStorage.removeItem("reg_locality");
+      updateProfile.mutate({
+        name: pendingName?.trim() || profile?.name || "",
+        age: pendingAge
+          ? BigInt(Math.floor(Number(pendingAge)))
+          : (profile?.age ?? BigInt(0)),
+        gender: pendingGender || profile?.gender || "",
+        locality: pendingLocality?.trim() || profile?.locality || "",
+        photoUrl: profile?.photoUrl ?? "",
+        lastUpdated: BigInt(Date.now()),
+      });
     }
   }, [isAuthenticated, profile, updateProfile.mutate]);
 
