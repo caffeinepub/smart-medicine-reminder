@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
+import ReportChapter4 from "./ReportChapter4";
 import ProfileTab from "./components/ProfileTab";
 import { useAuth } from "./hooks/useAuth";
 import { useProfile, useUpdateProfile } from "./hooks/useProfile";
@@ -538,7 +539,7 @@ function HeaderAvatar({
   );
 }
 
-export default function App() {
+function AppInner() {
   const { isAuthenticated, isInitializing, username, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [darkMode, setDarkMode] = useState(() => {
@@ -710,4 +711,11 @@ export default function App() {
       </nav>
     </div>
   );
+}
+
+export default function App() {
+  if (window.location.pathname === "/report") {
+    return <ReportChapter4 />;
+  }
+  return <AppInner />;
 }
